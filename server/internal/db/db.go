@@ -48,3 +48,8 @@ func SaveRequest(req models.Request, headersJSON []byte) error {
 	)
 	return err
 }
+
+func DeleteSession(id string) error {
+	_, err := DB.Exec(`DELETE FROM sessions WHERE id = $1`, id)
+	return err
+}

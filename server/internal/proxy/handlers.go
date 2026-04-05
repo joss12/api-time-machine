@@ -2,6 +2,7 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -89,21 +90,33 @@ func ProxyHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func ReplaySessionHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("Replay handler hit")
-	respond(w, 200, map[string]string{"status": "ok"})
 	id := r.PathValue("id")
 
 	speed := 1.0
 	if s := r.URL.Query().Get("speed"); s != "" {
-		if _, err := fmt.Scanf(s, "%f", &speed); err != nil {
-			speed = 1.0
-		}
+		fmt.Sscanf(s, "%f", &speed)
 	}
 
-	results, err := ReplaySession(id, speed)
-	if err != nil {
+	// Run replay in background
+	go func() {
+		ctx := context.Background()
+		requests, err := db.GetSessionRequests(ctx, id)
+		if err != nil {
+			log.Printf(" Replay failed: %v", err)
+			return
+		}
+		ReplaySession(id, speed)
+		log.Printf(" Replay done for session %s — %d requests", id, len(requests))
+	}()
+
+	respond(w, 200, map[string]string{"status": "replay started"})
+}
+
+func DeleteSessionHandler(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := db.DeleteSession(id); err != nil {
 		respond(w, 500, map[string]string{"error": err.Error()})
 		return
 	}
-	respond(w, 200, results)
+	respond(w, 200, map[string]string{"status": "deleted"})
 }

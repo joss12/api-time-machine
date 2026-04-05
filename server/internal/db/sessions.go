@@ -80,3 +80,18 @@ func GetSessionRequests(ctx context.Context, sessionID string) ([]models.Request
 	}
 	return requests, nil
 }
+
+func ClosestaleSession() error {
+
+	_, err := DB.Exec(`
+	UPDATE sessions
+	SET ended_at = NOW()
+	WHERE ended_at IS NULL
+	AND id NOT IN (
+		SELECT DISTINCT session_id FROM requests
+		WHERE timestamp > NOW() - INTERVAL '1 hour'
+	)
+	AND created_at < NOW() - INTERVAL '1 hour'
+	`)
+	return err
+}

@@ -16,6 +16,7 @@ func main() {
 	godotenv.Load()
 	db.Connect()
 	db.CreateTable()
+	db.ClosestaleSession()
 
 	mux := http.NewServeMux()
 
@@ -27,6 +28,7 @@ func main() {
 
 	mux.HandleFunc("/proxy/", proxy.ProxyHandler)
 	mux.HandleFunc("GET /health", proxy.HealthHandler)
+	mux.HandleFunc("DELETE /api/sessions/{id}", proxy.DeleteSessionHandler)
 
 	handler := proxy.CORSMiddleware(mux)
 

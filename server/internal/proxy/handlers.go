@@ -70,8 +70,16 @@ func GetSessionRequestsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func ProxyHandler(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.URL.Query().Get("session_id")
-	target := r.URL.Query().Get("target")
+	sessionID := r.Header.Get("X-Session-Id")
+	target := r.Header.Get("X-Target-Url")
+
+	// Fall back to query params for backward compatibility
+	if sessionID == "" {
+		sessionID = r.URL.Query().Get("session_id")
+	}
+	if target == "" {
+		target = r.URL.Query().Get("target")
+	}
 
 	if sessionID == "" || target == "" {
 		respond(w, 400, map[string]string{"error": "session_id and target are required"})
@@ -84,7 +92,6 @@ func ProxyHandler(w http.ResponseWriter, r *http.Request) {
 	r.URL.RawQuery = q.Encode()
 
 	path := strings.TrimPrefix(r.URL.Path, "/proxy")
-
 	p := New(sessionID, target)
 	p.ServeHTTP(w, r, path)
 }

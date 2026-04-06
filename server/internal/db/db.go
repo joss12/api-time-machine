@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log"
 	"os"
+	"time"
 
 	"github.com/joss12/api-time-machine/internal/models"
 	_ "github.com/lib/pq"
@@ -23,6 +24,11 @@ func Connect() {
 		log.Fatal("Failed to open DB connection: ", err)
 	}
 
+	// Connection pool settings
+	DB.SetMaxOpenConns(10)
+	DB.SetMaxIdleConns(5)
+	DB.SetConnMaxLifetime(5 * time.Minute)
+
 	err = DB.Ping()
 	if err != nil {
 		log.Fatal("Failed to ping DB: ", err)
@@ -32,6 +38,12 @@ func Connect() {
 }
 
 func SaveRequest(req models.Request, headersJSON []byte) error {
+	// Ping first to ensure connection is alive
+	if err := DB.Ping(); err != nil {
+		log.Println("DB ping failed, reconnecting...")
+		Connect()
+	}
+
 	query := `
 	INSERT INTO requests (session_id, method, url, headers, body, status_code, response, latency_ms)
 	VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8)

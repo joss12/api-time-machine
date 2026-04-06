@@ -3,12 +3,15 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/joss12/api-time-machine/internal/db"
+	"github.com/joss12/api-time-machine/internal/models"
 )
 
 type ReplayResult struct {
@@ -51,11 +54,15 @@ func ReplaySession(sessionID string, speed float64) ([]ReplayResult, error) {
 			continue
 		}
 
+		// Copy stored headers — skip Accept-Encoding
 		for k, v := range req.Headers {
+			if strings.ToLower(k) == "accept-encoding" {
+				continue
+			}
 			outReq.Header.Set(k, v)
 		}
+		outReq.Header.Set("Accept-Encoding", "identity")
 
-		log.Printf("Firing...")
 		resp, err := client.Do(outReq)
 		if err != nil {
 			log.Printf("Request failed: %v", err)
@@ -70,17 +77,40 @@ func ReplaySession(sessionID string, speed float64) ([]ReplayResult, error) {
 			continue
 		}
 
-		log.Printf("Response: %d", resp.StatusCode)
 		respBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+
+		latency := int(time.Since(start).Milliseconds())
+
+		log.Printf("Got response: %d", resp.StatusCode)
+
+		// Save replayed request to DB
+		headers := make(map[string]string)
+		for k, v := range outReq.Header {
+			headers[k] = v[0]
+		}
+		headersJSON, _ := json.Marshal(headers)
+		newReq := models.Request{
+			SessionID:  sessionID,
+			Method:     req.Method,
+			URL:        req.URL,
+			Headers:    headers,
+			Body:       req.Body,
+			StatusCode: resp.StatusCode,
+			Response:   sanitizeString(string(respBody)),
+			LatencyMs:  latency,
+		}
+		if err := db.SaveRequest(newReq, headersJSON); err != nil {
+			log.Printf("Failed to save replayed request: %v", err)
+		}
 
 		results = append(results, ReplayResult{
 			RequestID:  req.ID,
 			Method:     req.Method,
 			URL:        req.URL,
 			StatusCode: resp.StatusCode,
-			LatencyMs:  int(time.Since(start).Milliseconds()),
-			Response:   string(respBody),
+			LatencyMs:  latency,
+			Response:   sanitizeString(string(respBody)),
 		})
 	}
 

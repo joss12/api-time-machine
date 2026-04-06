@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/joss12/api-time-machine/internal/db"
@@ -84,9 +85,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request, path string) {
 		Method:     r.Method,
 		URL:        targetURL,
 		Headers:    headers,
-		Body:       string(bodyBytes),
+		Body:       sanitizeString(string(bodyBytes)),
 		StatusCode: resp.StatusCode,
-		Response:   string(respBody),
+		Response:   sanitizeString(string(respBody)),
 		LatencyMs:  latency,
 	}
 
@@ -95,4 +96,16 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request, path string) {
 	} else {
 		log.Printf(" [%s] %s → %d (%dms)\n", req.Method, targetURL, req.StatusCode, req.LatencyMs)
 	}
+}
+
+func sanitizeString(s string) string {
+
+	s = strings.Map(func(r rune) rune {
+		if r == 0 || r == '\uFFFD' {
+			return -1
+		}
+		return r
+	}, s)
+
+	return strings.ToValidUTF8(s, "")
 }

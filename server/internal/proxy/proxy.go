@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"io"
 	"log"
@@ -72,9 +73,13 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request, path string) {
 	// Read response
 	respBody, _ := io.ReadAll(resp.Body)
 
+	decompressed := decompressBody(resp, respBody)
+
 	for k, v := range resp.Header {
 		w.Header().Set(k, v[0])
 	}
+	outReq.Header.Set("Accept-Encoding", "identity")
+
 	w.WriteHeader(resp.StatusCode)
 	w.Write(respBody)
 
@@ -87,7 +92,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request, path string) {
 		Headers:    headers,
 		Body:       sanitizeString(string(bodyBytes)),
 		StatusCode: resp.StatusCode,
-		Response:   sanitizeString(string(respBody)),
+		Response:   sanitizeString(string(decompressed)),
 		LatencyMs:  latency,
 	}
 
@@ -108,4 +113,21 @@ func sanitizeString(s string) string {
 	}, s)
 
 	return strings.ToValidUTF8(s, "")
+}
+
+func decompressBody(resp *http.Response, body []byte) []byte {
+	encoding := resp.Header.Get("Content-Encoding")
+	if encoding == "gzip" {
+		reader, err := gzip.NewReader(bytes.NewReader(body))
+		if err != nil {
+			return body
+		}
+		defer reader.Close()
+		decompressed, err := io.ReadAll(reader)
+		if err != nil {
+			return body
+		}
+		return decompressed
+	}
+	return body
 }

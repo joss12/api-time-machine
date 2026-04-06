@@ -35,7 +35,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request, path string) {
 		bodyBytes, _ = io.ReadAll(r.Body)
 	}
 
-	// Capture headers
+	// Capture original headers for storage
 	headers := make(map[string]string)
 	for k, v := range r.Header {
 		headers[k] = v[0]
@@ -54,13 +54,21 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request, path string) {
 		return
 	}
 
-	// Copy headers
+	// Copy headers — skip Accept-Encoding to prevent compression
 	for k, v := range r.Header {
+		if strings.ToLower(k) == "accept-encoding" {
+			continue
+		}
 		outReq.Header.Set(k, v[0])
 	}
 
+	// Force no compression so we get readable responses
+	outReq.Header.Set("Accept-Encoding", "identity")
+
 	// Fire request
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
 	resp, err := client.Do(outReq)
 	if err != nil {
 		http.Error(w, "failed to forward request", 502)
@@ -73,16 +81,13 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request, path string) {
 	// Read response
 	respBody, _ := io.ReadAll(resp.Body)
 
+	// Decompress just in case
 	decompressed := decompressBody(resp, respBody)
 
+	// Write response back to client
 	for k, v := range resp.Header {
-		if strings.ToLower(k) == "accept-encoding" {
-			continue
-		}
-		outReq.Header.Set(k, v[0])
+		w.Header().Set(k, v[0])
 	}
-	outReq.Header.Set("Accept-Encoding", "identity")
-
 	w.WriteHeader(resp.StatusCode)
 	w.Write(respBody)
 
@@ -102,25 +107,24 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request, path string) {
 	if err := db.SaveRequest(req, headersJSON); err != nil {
 		log.Println("Failed to save request:", err)
 	} else {
-		log.Printf(" [%s] %s → %d (%dms)\n", req.Method, targetURL, req.StatusCode, req.LatencyMs)
+		log.Printf("[%s] %s → %d (%dms)\n", req.Method, targetURL, req.StatusCode, req.LatencyMs)
 	}
 }
 
 func sanitizeString(s string) string {
-
 	s = strings.Map(func(r rune) rune {
 		if r == 0 || r == '\uFFFD' {
 			return -1
 		}
 		return r
 	}, s)
-
 	return strings.ToValidUTF8(s, "")
 }
 
 func decompressBody(resp *http.Response, body []byte) []byte {
-	encoding := resp.Header.Get("Content-Encoding")
-	if encoding == "gzip" {
+	encoding := strings.ToLower(resp.Header.Get("Content-Encoding"))
+	switch encoding {
+	case "gzip":
 		reader, err := gzip.NewReader(bytes.NewReader(body))
 		if err != nil {
 			return body
@@ -131,6 +135,9 @@ func decompressBody(resp *http.Response, body []byte) []byte {
 			return body
 		}
 		return decompressed
+	case "br":
+		return body
+	default:
+		return body
 	}
-	return body
 }

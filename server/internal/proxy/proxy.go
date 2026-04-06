@@ -76,7 +76,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request, path string) {
 	decompressed := decompressBody(resp, respBody)
 
 	for k, v := range resp.Header {
-		w.Header().Set(k, v[0])
+		if strings.ToLower(k) == "accept-encoding" {
+			continue
+		}
+		outReq.Header.Set(k, v[0])
 	}
 	outReq.Header.Set("Accept-Encoding", "identity")
 
